@@ -11,7 +11,7 @@ Dieses Dokument wird als Knowledge-File in den Custom GPT hochgeladen.
 - Verfügbare Services:
   * Google Maps API
   * Google Sheets Integration
-  * Telegram Bot (Token: 8348680663:AAETChGMdu5QzQaO4fjoN7sx2xHY1vziJfY)
+  * Telegram Bot (Token: )
   * Browserless Chrome (Web-Scraping)
   * Auto-Test Webhook (AKTIV)
 - Auto-Test: Läuft automatisch nach Workflow-Bau
