@@ -1,0 +1,17 @@
+# Credentials - NIEMALS committen!
+.env
+*.env
+
+# Temporäre Export-Dateien
+/tmp/n8n_edit_*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
