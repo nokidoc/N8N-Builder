@@ -1,0 +1,806 @@
+{
+  "name": "LEADMASTER – PLZ Scraper (GS + TB)",
+  "active": false,
+  "settings": {
+    "executionTimeout": 3600000,
+    "saveManualExecutions": true
+  },
+  "nodes": [
+    {
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [
+        50,
+        50
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "1a. Abfrage laden",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        250,
+        50
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1ySGkyk6JYyo7m4E9FuPmuFhxAov3q2xFv1nUQTwomqA",
+        "range": "'Abfrage'!A1:B",
+        "firstDataRow": 2
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "1b. PLZ Datenbank laden",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        450,
+        50
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "12o5DdRCV7nwSA66EkXen2xjYWCzI2F4rPScg-8QxZLw",
+        "range": "'Sheet1'!A1:B",
+        "firstDataRow": 2
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "1c. Code: PLZ Kombinationen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        650,
+        50
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const abfragen = $('1a. Abfrage laden').all();\nconst plzDaten = $('1b. PLZ Datenbank laden').all();\nconst kombinationen = [];\n\nfor (const abfrage of abfragen) {\n  const json = abfrage.json;\n  const keys = Object.keys(json);\n  const ort = (json[keys[0]] || '').toString().trim();\n  const branche = (json[keys[1]] || '').toString().trim();\n\n  if (!ort || !branche || ort.toLowerCase() === 'ort') continue;\n\n  for (const plzRow of plzDaten) {\n    const pJson = plzRow.json;\n    const pKeys = Object.keys(pJson);\n    const stadt = (pJson[pKeys[1]] || '').toString().trim();\n    const plz = (pJson[pKeys[0]] || '').toString().trim();\n\n    if (stadt.toLowerCase() === ort.toLowerCase()) {\n      kombinationen.push({\n        json: {\n          plz,\n          stadt,\n          branche,\n          status_gs: '',\n          status_tb: ''\n        }\n      });\n    }\n  }\n}\n\nreturn kombinationen.slice(0, 50);"
+      }
+    },
+    {
+      "name": "1d. Kombinationen schreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        850,
+        50
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1ySGkyk6JYyo7m4E9FuPmuFhxAov3q2xFv1nUQTwomqA",
+        "operation": "append",
+        "range": "'Abfrage_Kombiniert'!A:E",
+        "dataStartRow": 1
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "1e. Kombinationen laden (aktiv)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1050,
+        50
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1ySGkyk6JYyo7m4E9FuPmuFhxAov3q2xFv1nUQTwomqA",
+        "range": "'Abfrage_Kombiniert'!A1:E",
+        "firstDataRow": 2
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "1f. Code: Filter offene",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        50
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nreturn items.filter(item => {\n  const json = item.json;\n  const keys = Object.keys(json);\n  const gsStatus = (json[keys[3]] || '').toString().trim();\n  const tbStatus = (json[keys[4]] || '').toString().trim();\n  return !gsStatus || !tbStatus;\n});"
+      }
+    },
+    {
+      "name": "2a. Split Kombinationen",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        50
+      ],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "name": "2b. GS: URL bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const json = $input.first().json;\nconst keys = Object.keys(json);\nconst plz = json[keys[0]];\nconst branche = json[keys[2]];\nreturn [{\n  json: {\n    url: `https://www.gelbeseiten.de/suche/${encodeURIComponent(branche)}/${plz}`,\n    plz,\n    branche,\n    page: 1,\n    maxPage: 10\n  }\n}];"
+      }
+    },
+    {
+      "name": "2c. GS: HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        450,
+        300
+      ],
+      "parameters": {
+        "url": "={{$node[\"2b. GS: URL bauen\"].json.url}}?pageNum={{$node[\"2c. GS: HTTP Request\"].json.page || 1}}",
+        "method": "GET",
+        "headers": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "de-DE,de;q=0.9"
+        },
+        "responseFormat": "text"
+      }
+    },
+    {
+      "name": "2d. GS: Parse URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cheerio = require('cheerio');\nconst html = $input.first().json.body || '';\nconst $ = cheerio.load(html);\nconst plz = $node['2b. GS: URL bauen'].json.plz;\nconst branche = $node['2b. GS: URL bauen'].json.branche;\n\nconst urls = [];\n$('article').each((i, el) => {\n  const link = $(el).find('a[href*=\"/gsp/\"]').first().attr('href')\n            || $(el).find('a[href*=\"-Y\"]').first().attr('href')\n            || $(el).find('h2 a').first().attr('href');\n  if (!link) return;\n\n  const url = link.startsWith('http') ? link : 'https://www.gelbeseiten.de' + link;\n  const name = $(el).find('h2').first().text().trim();\n  if (url && !urls.find(u => u.url === url)) {\n    urls.push({\n      url,\n      firmenname_vorschau: name,\n      plz,\n      branche,\n      quelle: 'GS',\n      status: 'offen',\n      versuche: 0\n    });\n  }\n});\n\nlet maxPage = 1;\n$('[class*=\"pagination\"] a, .pagination a').each((i, el) => {\n  const n = parseInt($(el).text().trim());\n  if (!isNaN(n) && n > maxPage) maxPage = n;\n});\n\nreturn [{ json: { urls: urls.slice(0, 20), totalPages: Math.min(maxPage, 10) } }];"
+      }
+    },
+    {
+      "name": "2e. GS: URLs append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1ySGkyk6JYyo7m4E9FuPmuFhxAov3q2xFv1nUQTwomqA",
+        "operation": "append",
+        "range": "'URL_Queue'!A:G",
+        "dataStartRow": 1
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "3a. TB: URL bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        250,
+        500
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const json = $input.first().json;\nconst keys = Object.keys(json);\nconst plz = json[keys[0]];\nconst branche = json[keys[2]];\nreturn [{\n  json: {\n    url: `https://www.dastelefonbuch.de/Suche/${encodeURIComponent(branche)}/${plz}`,\n    plz,\n    branche,\n    page: 1\n  }\n}];"
+      }
+    },
+    {
+      "name": "3b. TB: HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        450,
+        500
+      ],
+      "parameters": {
+        "url": "={{$node[\"3a. TB: URL bauen\"].json.url}}/{{$node[\"3a. TB: URL bauen\"].json.page || 1}}",
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.de.it2media.tb.ipad.v2+json",
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15"
+        }
+      }
+    },
+    {
+      "name": "3c. TB: Parse URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        650,
+        500
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nconst plz = $node['3a. TB: URL bauen'].json.plz;\nconst branche = $node['3a. TB: URL bauen'].json.branche;\nconst urls = [];\n\nif (data.hitlist && Array.isArray(data.hitlist.hits)) {\n  data.hitlist.hits.forEach(hit => {\n    if (hit.url) {\n      urls.push({\n        url: hit.url,\n        firmenname_vorschau: hit.displayName || '',\n        plz,\n        branche,\n        quelle: 'TB',\n        status: 'offen',\n        versuche: 0\n      });\n    }\n  });\n}\n\nconst totalPages = data.hitlist ? Math.min(Math.ceil((data.hitlist.totalHitCount || 0) / (data.hitlist.pageLength || 20)), 10) : 1;\nreturn [{ json: { urls: urls.slice(0, 20), totalPages } }];"
+      }
+    },
+    {
+      "name": "3d. TB: URLs append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        850,
+        500
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1ySGkyk6JYyo7m4E9FuPmuFhxAov3q2xFv1nUQTwomqA",
+        "operation": "append",
+        "range": "'URL_Queue'!A:G",
+        "dataStartRow": 1
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "4a. URL_Queue laden",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1050,
+        600
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1ySGkyk6JYyo7m4E9FuPmuFhxAov3q2xFv1nUQTwomqA",
+        "range": "'URL_Queue'!A1:G",
+        "firstDataRow": 2
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "4b. Code: Filter offen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        600
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nreturn items.filter(item => {\n  const json = item.json;\n  const keys = Object.keys(json);\n  const status = (json[keys[5]] || '').toString().trim();\n  const versuche = parseInt(json[keys[6]] || '0');\n  return status === 'offen' && versuche < 3;\n});"
+      }
+    },
+    {
+      "name": "4c. Split URLs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        600
+      ],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "name": "4d. Code: Delay",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        600
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const idx = $runIndex || 0;\nlet delay = Math.floor(Math.random() * 3000) + 3000; // 3-6s\n\nif (idx > 0 && idx % 200 === 0) delay += 600000; // +10min\nelse if (idx > 0 && idx % 50 === 0) delay += 120000; // +2min\n\nawait new Promise(r => setTimeout(r, delay));\nreturn $input.all();"
+      }
+    },
+    {
+      "name": "4e. Switch: GS oder TB",
+      "type": "n8n-nodes-base.switchNode",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        600
+      ],
+      "parameters": {
+        "mode": "expression",
+        "cases": [
+          {
+            "condition": "={{$node[\"4a. URL_Queue laden\"].json.quelle === \"GS\"}}",
+            "output": 0
+          },
+          {
+            "condition": "={{$node[\"4a. URL_Queue laden\"].json.quelle === \"TB\"}}",
+            "output": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "4f. GS Detail HTTP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1650,
+        750
+      ],
+      "parameters": {
+        "url": "={{$node[\"4a. URL_Queue laden\"].json.url}}",
+        "method": "GET",
+        "headers": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        },
+        "responseFormat": "text"
+      }
+    },
+    {
+      "name": "4g. GS Parse Detail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        750
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const cheerio = require('cheerio');\nconst html = $input.first().json.body || '';\nconst $ = cheerio.load(html);\nconst listingUrl = $node['4a. URL_Queue laden'].json.url;\n\nconst webseite = (() => {\n  let ws = '';\n  $('a[href^=\"http\"]').each((i, el) => {\n    const h = $(el).attr('href') || '';\n    if (!h.includes('gelbeseiten.de') && !h.includes('google.') && !h.includes('facebook.') && !ws) ws = h;\n  });\n  return ws;\n})();\n\nreturn [{json: {\n  firmenname: $('[itemprop=\"name\"]').first().text().trim() || $('h1').first().text().trim(),\n  inhaber: $('[class*=\"contact-name\"], [itemprop=\"employee\"]').first().text().trim(),\n  strasse: $('[itemprop=\"streetAddress\"]').text().trim(),\n  plz: $('[itemprop=\"postalCode\"]').text().trim(),\n  stadt: $('[itemprop=\"addressLocality\"]').text().trim(),\n  telefon: $('[itemprop=\"telephone\"]').first().text().trim() || $('[class*=\"phoneNumber\"]').first().text().trim(),\n  telefon2: '',\n  email: $('a[href^=\"mailto:\"]').first().attr('href')?.replace('mailto:','') || '',\n  webseite,\n  bewertung: $('[itemprop=\"ratingValue\"]').first().text().trim(),\n  bewertungen_anzahl: $('[itemprop=\"reviewCount\"]').first().text().trim(),\n  google_maps_link: $('a[href*=\"maps.google\"], a[href*=\"goo.gl/maps\"]').first().attr('href') || '',\n  kategorie: '',\n  oeffnungszeiten: '',\n  quelle: 'GS',\n  listing_url: listingUrl,\n  branche: $node['4a. URL_Queue laden'].json.branche,\n  plz_suche: $node['4a. URL_Queue laden'].json.plz\n}}];"
+      }
+    },
+    {
+      "name": "4h. TB Detail HTTP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1650,
+        900
+      ],
+      "parameters": {
+        "url": "={{$node[\"4a. URL_Queue laden\"].json.url}}",
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.de.it2media.tb.ipad.v2+json",
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)"
+        }
+      }
+    },
+    {
+      "name": "4i. TB Parse Detail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        900
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const d = $input.first().json?.detail || $input.first().json || {};\nconst listingUrl = $node['4a. URL_Queue laden'].json.url;\n\nreturn [{json: {\n  firmenname: d.displayName || '',\n  inhaber: d.owner || d.contactPerson || '',\n  strasse: d.address?.street || '',\n  plz: d.address?.zip || '',\n  stadt: d.address?.city || '',\n  telefon: d.phones?.[0]?.number || '',\n  telefon2: d.phones?.[1]?.number || '',\n  email: d.email || '',\n  webseite: d.urls?.find(u => u.type === 'web')?.url || '',\n  bewertung: d.rating?.value?.toString() || '',\n  bewertungen_anzahl: d.rating?.count?.toString() || '',\n  google_maps_link: '',\n  kategorie: d.categories?.[0] || '',\n  oeffnungszeiten: Array.isArray(d.openingHours) ? d.openingHours.map(h => h.text || '').join(' | ') : '',\n  quelle: 'TB',\n  listing_url: listingUrl,\n  branche: $node['4a. URL_Queue laden'].json.branche,\n  plz_suche: $node['4a. URL_Queue laden'].json.plz\n}}];"
+      }
+    },
+    {
+      "name": "4j. Master laden",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2050,
+        825
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1jpLnSCLQRD5PWzI0_bHIC89QsaXLNOPI0mKrNOWPGJY",
+        "range": "'Master'!A1:Z",
+        "firstDataRow": 2
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "4k. Duplikat & Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        2250,
+        825
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const master = $('4j. Master laden').all();\nconst newEntry = $input.first().json;\n\nfunction normalize(str) {\n  if (!str) return '';\n  return str.toLowerCase()\n    .replace(/\\b(gmbh|co\\.|kg|e\\.v\\.|ug|gbr)\\b/g, '')\n    .replace(/[^\\wäöüß\\s]/g, '')\n    .replace(/\\s+/g,' ').trim();\n}\n\nfunction score(a, b) {\n  let s = 0;\n  const na = normalize(a.firmenname || a.Firmenname || '');\n  const nb = normalize(b.firmenname || b.Firmenname || '');\n  if (na && nb && na === nb) s += 50;\n  else if (na && nb && (na.includes(nb) || nb.includes(na))) s += 25;\n\n  const pa = (a.plz || a.PLZ || '').trim();\n  const pb = (b.plz || b.PLZ || '').trim();\n  if (pa && pb && pa === pb) s += 30;\n\n  const ta = (a.telefon || a.Telefon || '').replace(/\\D/g,'');\n  const tb = (b.telefon || b.Telefon || '').replace(/\\D/g,'');\n  if (ta && tb && ta === tb) s += 40;\n  return s;\n}\n\nlet best = { score: 0, row: null };\nfor (const m of master) {\n  const s = score(newEntry, m.json);\n  if (s > best.score) { best.score = s; best.row = m; }\n}\n\nif (best.score >= 60 && best.row) {\n  return [{ json: { action: 'update', row: best.row.json } }];\n}\n\nconst filled = ['firmenname','strasse','plz','stadt','telefon','email','webseite']\n  .filter(f => newEntry[f]).length;\nconst pct = Math.round(filled / 7 * 100);\nconst id = `${newEntry.plz_suche}-${(newEntry.branche||'XX').substring(0,4).toUpperCase()}-${String(master.length+1).padStart(4,'0')}`;\n\nreturn [{ json: {\n  action: 'insert',\n  master_id: id,\n  Firmenname: newEntry.firmenname || '',\n  Inhaber: newEntry.inhaber || '',\n  Strasse: newEntry.strasse || '',\n  PLZ: newEntry.plz || '',\n  Stadt: newEntry.stadt || '',\n  Telefon: newEntry.telefon || '',\n  Telefon2: newEntry.telefon2 || '',\n  Email: newEntry.email || '',\n  Webseite: newEntry.webseite || '',\n  Kategorie: newEntry.kategorie || newEntry.branche || '',\n  Bewertung: newEntry.bewertung || '',\n  Bewertungen_Anzahl: newEntry.bewertungen_anzahl || '',\n  Oeffnungszeiten: newEntry.oeffnungszeiten || '',\n  Google_Maps_Link: newEntry.google_maps_link || '',\n  GS_URL: newEntry.quelle === 'GS' ? newEntry.listing_url : '',\n  TB_URL: newEntry.quelle === 'TB' ? newEntry.listing_url : '',\n  Quellen: newEntry.quelle || '',\n  Vollstaendigkeit_Prozent: pct + '%',\n  Branche_Suche: newEntry.branche || '',\n  PLZ_Suche: newEntry.plz_suche || '',\n  Datum_erstellt: new Date().toLocaleDateString('de-DE'),\n  Datum_aktualisiert: new Date().toLocaleDateString('de-DE')\n}}];"
+      }
+    },
+    {
+      "name": "4l. Switch: Insert/Update",
+      "type": "n8n-nodes-base.switchNode",
+      "typeVersion": 1,
+      "position": [
+        2450,
+        825
+      ],
+      "parameters": {
+        "mode": "expression",
+        "cases": [
+          {
+            "condition": "={{$node[\"4k. Duplikat & Action\"].json.action === \"insert\"}}",
+            "output": 0
+          },
+          {
+            "condition": "={{$node[\"4k. Duplikat & Action\"].json.action === \"update\"}}",
+            "output": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "4m. Master Append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2300,
+        750
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1jpLnSCLQRD5PWzI0_bHIC89QsaXLNOPI0mKrNOWPGJY",
+        "operation": "append",
+        "range": "'Master'!A:Z",
+        "dataStartRow": 1
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "4n. Master Update",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2300,
+        900
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1jpLnSCLQRD5PWzI0_bHIC89QsaXLNOPI0mKrNOWPGJY",
+        "operation": "update",
+        "range": "'Master'!A:Z"
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "4o. URL_Queue update",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2650,
+        825
+      ],
+      "parameters": {
+        "authentication": "oauth2",
+        "spreadsheetId": "1ySGkyk6JYyo7m4E9FuPmuFhxAov3q2xFv1nUQTwomqA",
+        "operation": "update",
+        "range": "'URL_Queue'!F:F"
+      },
+      "credentials": {
+        "googleSheetsOAuth2": "google_oauth"
+      }
+    },
+    {
+      "name": "Telegram Finish",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        2850,
+        825
+      ],
+      "parameters": {
+        "botToken": "8348680663:AAETChGMdu5QzQaO4fjoN7sx2xHY1vziJfY",
+        "chatId": 6136860005,
+        "text": "✅ LEADMASTER Scraping fertig!"
+      }
+    }
+  ],
+  "connections": {
+    "Start": [
+      {
+        "node": "1a. Abfrage laden",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "1a. Abfrage laden": [
+      {
+        "node": "1c. Code: PLZ Kombinationen",
+        "type": "main",
+        "index": [
+          0,
+          0
+        ]
+      }
+    ],
+    "1b. PLZ Datenbank laden": [
+      {
+        "node": "1c. Code: PLZ Kombinationen",
+        "type": "main",
+        "index": [
+          0,
+          1
+        ]
+      }
+    ],
+    "1c. Code: PLZ Kombinationen": [
+      {
+        "node": "1d. Kombinationen schreiben",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "1d. Kombinationen schreiben": [
+      {
+        "node": "1e. Kombinationen laden (aktiv)",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "1e. Kombinationen laden (aktiv)": [
+      {
+        "node": "1f. Code: Filter offene",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "1f. Code: Filter offene": [
+      {
+        "node": "2a. Split Kombinationen",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "2a. Split Kombinationen": [
+      {
+        "node": "2b. GS: URL bauen",
+        "type": "main",
+        "index": [
+          0
+        ]
+      },
+      {
+        "node": "3a. TB: URL bauen",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "2b. GS: URL bauen": [
+      {
+        "node": "2c. GS: HTTP Request",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "2c. GS: HTTP Request": [
+      {
+        "node": "2d. GS: Parse URLs",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "2d. GS: Parse URLs": [
+      {
+        "node": "2e. GS: URLs append",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "3a. TB: URL bauen": [
+      {
+        "node": "3b. TB: HTTP Request",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "3b. TB: HTTP Request": [
+      {
+        "node": "3c. TB: Parse URLs",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "3c. TB: Parse URLs": [
+      {
+        "node": "3d. TB: URLs append",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4a. URL_Queue laden": [
+      {
+        "node": "4b. Code: Filter offen",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4b. Code: Filter offen": [
+      {
+        "node": "4c. Split URLs",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4c. Split URLs": [
+      {
+        "node": "4d. Code: Delay",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4d. Code: Delay": [
+      {
+        "node": "4e. Switch: GS oder TB",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4e. Switch: GS oder TB": [
+      {
+        "node": "4f. GS Detail HTTP",
+        "type": "main",
+        "index": [
+          0
+        ]
+      },
+      {
+        "node": "4h. TB Detail HTTP",
+        "type": "main",
+        "index": [
+          1
+        ]
+      }
+    ],
+    "4f. GS Detail HTTP": [
+      {
+        "node": "4g. GS Parse Detail",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4g. GS Parse Detail": [
+      {
+        "node": "4j. Master laden",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4h. TB Detail HTTP": [
+      {
+        "node": "4i. TB Parse Detail",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4i. TB Parse Detail": [
+      {
+        "node": "4j. Master laden",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4j. Master laden": [
+      {
+        "node": "4k. Duplikat & Action",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4k. Duplikat & Action": [
+      {
+        "node": "4l. Switch: Insert/Update",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4l. Switch: Insert/Update": [
+      {
+        "node": "4m. Master Append",
+        "type": "main",
+        "index": [
+          0
+        ]
+      },
+      {
+        "node": "4n. Master Update",
+        "type": "main",
+        "index": [
+          1
+        ]
+      }
+    ],
+    "4m. Master Append": [
+      {
+        "node": "4o. URL_Queue update",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4n. Master Update": [
+      {
+        "node": "4o. URL_Queue update",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ],
+    "4o. URL_Queue update": [
+      {
+        "node": "Telegram Finish",
+        "type": "main",
+        "index": [
+          0
+        ]
+      }
+    ]
+  },
+  "staticData": null,
+  "hash": "",
+  "pinData": {}
+}
