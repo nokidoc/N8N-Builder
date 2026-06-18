@@ -991,54 +991,12 @@ const lyricsNotFound = node({
   type: 'n8n-nodes-base.code',
   version: 2,
   config: {
-    name: 'Lyrics Not Found',
+    name: 'Lyrics Skippen',
     parameters: {
       mode: 'runOnceForEachItem',
       jsCode: `return { json: Object.assign({}, $('Song Lade Passthrough').item.json, { lyrics: '', lyrics_kurz: '' }) };`
     }
   }
-});
-
-const ergebnisBatchNoLyrics = node({
-  type: 'n8n-nodes-base.code', version: 2,
-  config: { name: 'Ergebnis Batch No Lyrics', parameters: { mode: 'runOnceForEachItem',
-    jsCode: `const d = item.json;
-return { json: {
-  'Interpret': d.artist || '',
-  'Kuenstler AKA': d.artistAka || '',
-  'Kuenstler Bio': d.artistBio || '',
-  'Songtitel': d.songTitle || '',
-  'Lyrics': '[Lyrics nicht gefunden]',
-  'Genius URL': d.songUrl || '',
-  'Album': d.album || '',
-  'Erscheinungsjahr': d.release_year || '',
-  'Featured Artists': d.feat_artists || '',
-  'Stil DNA': '[Keine Lyrics verfügbar]',
-  'Quelle': d.source || '',
-  'Abgerufen am': new Date().toISOString().split('T')[0],
-  'chatId': d.chatId,
-  'artist': d.artist,
-  'songTitle': d.songTitle,
-  'songIndex': d.songIndex || 0,
-  'songTotal': d.songTotal || 10
-} };` } }
-});
-
-const sheetsBatchNoLyrics = node({
-  type: 'n8n-nodes-base.googleSheets', version: 4.5,
-  config: { name: 'Sheets Batch No Lyrics', credentials: { googleSheetsOAuth2Api: { id: 'oNARbQVtBeLd1FF3', name: 'Google Sheets account' } },
-    parameters: { resource: 'sheet', operation: 'append',
-      documentId: { __rl: true, mode: 'id', value: '1jJkYxSQMuD7EQtpjQOc94UgIOgRyIRHRBpoIuVmtaLg' },
-      sheetName: { __rl: true, mode: 'id', value: '0' },
-      columns: { mappingMode: 'autoMapInputData', schema: [] }, options: {} } }
-});
-
-const telegramNoLyricsBatch = node({
-  type: 'n8n-nodes-base.telegram', version: 1.2,
-  config: { name: 'Telegram No Lyrics Batch', credentials: { telegramApi: { id: 'gWXjrrJ3u7XBFEPO', name: 'Telegram account' } },
-    parameters: { resource: 'message', operation: 'sendMessage', chatId: expr('{{ $json.chatId }}'),
-      text: expr('{{ "⏭ *" + $json.songTitle + "* (" + ($json.songIndex || "?") + "/" + ($json.songTotal || 15) + ") – keine Lyrics gefunden, übersprungen.\\n\\n_⏳ 30 Sek. Pause..._" }}'),
-      additionalFields: { appendAttribution: false, parse_mode: 'Markdown' } } }
 });
 
 const pause30SekundenError = node({
