@@ -1088,6 +1088,20 @@ return { json: {
   }
 });
 
+const lyricsVorhandenCheck = ifElse({
+  version: 2.2,
+  config: {
+    name: 'Lyrics vorhanden?',
+    parameters: {
+      conditions: {
+        options: { caseSensitive: false, leftValue: '', typeValidation: 'loose' },
+        conditions: [{ leftValue: expr('{{ ($json.lyrics || "").length }}'), operator: { type: 'number', operation: 'gte', rightValue: 20 } }],
+        combinator: 'and'
+      }
+    }
+  }
+});
+
 const sheetsBatch = node({
   type: 'n8n-nodes-base.googleSheets',
   version: 4.5,
@@ -1353,11 +1367,14 @@ export default workflow('AfcEeD4NpFPKMbvy', 'Telegram Song-Analyse (Spotify / Yo
   .to(proSongBatch
     .onDone(batchFertigAggregat.to(artistFertigNachricht))
     .onEachBatch(songLadeStatusNachricht.to(songLadePassthrough).to(geniusSucheBatch).to(geniusSongUrlBatchExtrahieren).to(lrclibBatch).to(lyricsExtrahierenBatch)
-      .to(lyricsPassthrough).to(ergebnisBatch).to(duplikatLesenBatch).to(duplikatPruefenBatch)
-      .to(istKeinDuplikat
-        .onTrue(sheetsBatch.to(ergebnisBatchPassthrough).to(telegramSongErfolgBatch).to(pause30Sekunden).to(nextBatch(proSongBatch)))
-        .onFalse(duplikatUebersprungen)
-      ))
+      .to(lyricsPassthrough).to(lyricsVorhandenCheck
+        .onTrue(ergebnisBatch.to(duplikatLesenBatch).to(duplikatPruefenBatch)
+          .to(istKeinDuplikat
+            .onTrue(sheetsBatch.to(ergebnisBatchPassthrough).to(telegramSongErfolgBatch).to(pause30Sekunden).to(nextBatch(proSongBatch)))
+            .onFalse(duplikatUebersprungen)
+          ))
+        .onFalse(lyricsNotFound)
+      )
   )
   .add(duplikatUebersprungen.to(nextBatch(proSongBatch)))
   .add(geniusSucheBatch.onError(lyricsNotFound))
