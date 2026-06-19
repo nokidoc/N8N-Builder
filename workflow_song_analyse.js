@@ -1375,7 +1375,7 @@ export default workflow('AfcEeD4NpFPKMbvy', 'Telegram Song-Analyse (Spotify / Yo
           ))
         .onFalse(lyricsNotFound)
       )
-  )
+  ))
   .add(duplikatUebersprungen.to(nextBatch(proSongBatch)))
   .add(geniusSucheBatch.onError(lyricsNotFound))
   // lrclib exact miss (HTTP error or no lyrics) → lrclib fuzzy search → ChartLyrics → Songtexte → give up
